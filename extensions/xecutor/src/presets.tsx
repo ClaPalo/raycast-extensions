@@ -6,6 +6,7 @@ import {
   Form,
   Icon,
   List,
+  LaunchProps,
   LocalStorage,
   Toast,
   clearSearchBar,
@@ -27,13 +28,30 @@ import { Preset, PresetFormValues } from "./types";
 const StringIndexableIcon = Icon as { [index: string]: string };
 const StringIndexableColor = Color as { [index: string]: string };
 
+type PresetsDraftValues = {
+  name?: string;
+  icon?: string;
+  color?: string;
+  [key: string]: unknown;
+};
+
 const CreateOrEditPresetName = (props: {
   name?: string;
   icon: string | undefined;
   color: string | undefined;
+  draftValues?: PresetsDraftValues;
+  editing?: boolean;
   onCreateOrEditPresetName: (name: string, icon: string, color: string) => void;
 }) => {
   const [error, setError] = useState<string | undefined>(undefined);
+
+  const defaultName = !props.editing ? (props.draftValues?.name as string | undefined) ?? props.name : props.name;
+  const defaultIcon = !props.editing
+    ? (props.draftValues?.icon as string | undefined) ?? props.icon ?? "CircleFilled"
+    : props.icon ?? "CircleFilled";
+  const defaultColor = !props.editing
+    ? (props.draftValues?.color as string | undefined) ?? props.color ?? "Orange"
+    : props.color ?? "Orange";
 
   const handleOnCreateOrEditPresetName = (values: PresetFormValues) => {
     if (values.name === "") {
@@ -54,6 +72,7 @@ const CreateOrEditPresetName = (props: {
   return (
     <Form
       navigationTitle="Create Preset: (2/2)"
+      enableDrafts={!props.editing}
       actions={
         <ActionPanel>
           <Action.SubmitForm title="Save Preset" icon={Icon.SaveDocument} onSubmit={handleOnCreateOrEditPresetName} />
@@ -63,19 +82,19 @@ const CreateOrEditPresetName = (props: {
       <Form.TextField
         id="name"
         title="Name"
-        defaultValue={props.name}
+        defaultValue={defaultName}
         placeholder="My New Preset"
         autoFocus={true}
         error={error}
-        onChange={(value) => handleNameError(value)}
-        onBlur={(event) => handleNameError(event.target.value as string)}
+        onChange={(value: string) => handleNameError(value)}
+        onBlur={(event: Form.Event<string>) => handleNameError(event.target.value as string)}
       />
-      <Form.Dropdown id="icon" title="Icon" defaultValue={props.icon || "CircleFilled"}>
+      <Form.Dropdown id="icon" title="Icon" defaultValue={defaultIcon}>
         {Object.keys(Icon).map((icon) => (
           <Form.Dropdown.Item key={icon} title={icon} value={icon} icon={StringIndexableIcon[icon]} />
         ))}
       </Form.Dropdown>
-      <Form.Dropdown id="color" title="Color" defaultValue={props.color || "Orange"}>
+      <Form.Dropdown id="color" title="Color" defaultValue={defaultColor}>
         {Object.keys(Color).map((color) => (
           <Form.Dropdown.Item
             key={color}
@@ -91,6 +110,7 @@ const CreateOrEditPresetName = (props: {
 
 const CreateOrEditPreset = (props: {
   preset?: Preset;
+  draftValues?: PresetsDraftValues;
   onCreateOrEditPreset: (preset: Preset) => void;
   editing?: boolean;
 }) => {
@@ -133,7 +153,7 @@ const CreateOrEditPreset = (props: {
   }, []);
 
   const toggleApp = (app: Application) => {
-    setSelectedApps((selectedApps) => xorby(selectedApps, [app], "bundleId"));
+    setSelectedApps((selectedApps: Application[]) => xorby(selectedApps, [app], "bundleId"));
   };
 
   const handleOnCreateOrEditPresetName = (name: string, icon: string, color: string) => {
@@ -151,7 +171,7 @@ const CreateOrEditPreset = (props: {
   };
 
   const appIsSelected = (app: Application) => {
-    return selectedApps.map((selectedApp) => selectedApp.bundleId).includes(app.bundleId);
+    return selectedApps.map((selectedApp: Application) => selectedApp.bundleId).includes(app.bundleId);
   };
 
   const maybeContinue = () => {
@@ -161,6 +181,8 @@ const CreateOrEditPreset = (props: {
           name={props.preset?.name}
           icon={props.preset?.icon}
           color={props.preset?.color}
+          draftValues={!props.editing ? props.draftValues : undefined}
+          editing={props.editing}
           onCreateOrEditPresetName={handleOnCreateOrEditPresetName}
         />
       );
@@ -169,11 +191,34 @@ const CreateOrEditPreset = (props: {
     }
   };
 
-  const ConfigureURLSet = (props: { urls: string[] }) => {
+  const ConfigureURLSet = (props: { urls: string[]; draftValues?: PresetsDraftValues; editing?: boolean }) => {
     const [urls, setUrls] = useState<string[]>([]);
 
     useEffect(() => {
       (async () => {
+        const isEditing = Boolean(props.editing);
+
+        if (!isEditing && props.draftValues) {
+          const urlKeyPrefix = "url-";
+          const indices = Object.keys(props.draftValues)
+            .filter((key) => key.startsWith(urlKeyPrefix))
+            .map((key) => Number(key.slice(urlKeyPrefix.length)))
+            .filter((n) => Number.isFinite(n) && n >= 0)
+            .sort((a, b) => a - b);
+
+          if (indices.length) {
+            const maxIndex = indices[indices.length - 1];
+            const fromDraft = Array.from({ length: maxIndex + 1 }, (_, i) => {
+              const key = `${urlKeyPrefix}${i}`;
+              const value = props.draftValues?.[key];
+              return typeof value === "string" ? value : "";
+            });
+
+            setUrls(fromDraft.length ? fromDraft : [""]);
+            return;
+          }
+        }
+
         if (props.urls && props.urls.length) {
           setUrls(props.urls);
         } else {
@@ -182,11 +227,11 @@ const CreateOrEditPreset = (props: {
       })();
     }, []);
 
-    const validateURLSet = (values: object) => {
-      const urls = Object.values(values).filter((url) => url !== "");
+    const validateURLSet = (values: Record<string, unknown>) => {
+      const urls = Object.values(values).filter((url): url is string => typeof url === "string" && url !== "");
 
       try {
-        urls.forEach((url: string) => {
+        urls.forEach((url) => {
           new URL(url);
         });
 
@@ -202,6 +247,7 @@ const CreateOrEditPreset = (props: {
 
     return (
       <Form
+        enableDrafts={!props.editing}
         actions={
           <ActionPanel>
             <Action.SubmitForm title="Save URL Set" icon={Icon.SaveDocument} onSubmit={validateURLSet} />
@@ -210,13 +256,13 @@ const CreateOrEditPreset = (props: {
                 title="Add URL"
                 icon={Icon.Plus}
                 shortcut={{ modifiers: ["cmd"], key: "n" }}
-                onAction={() => setUrls((urls) => [...urls, ""])}
+                onAction={() => setUrls((urls: string[]) => [...urls, ""])}
               />
             </ActionPanel.Section>
           </ActionPanel>
         }
       >
-        {urls.map((url, urlIndex) => (
+        {urls.map((url: string, urlIndex: number) => (
           <Form.TextField key={urlIndex} id={`url-${urlIndex}`} title={`URL: #${urlIndex + 1}`} defaultValue={url} />
         ))}
       </Form>
@@ -260,7 +306,17 @@ const CreateOrEditPreset = (props: {
           accessories={[{ icon: selectedURLs.length ? Icon.Checkmark : undefined }]}
           actions={
             <ActionPanel>
-              <Action.Push title="Configure URL Set" icon={Icon.Cog} target={<ConfigureURLSet urls={selectedURLs} />} />
+              <Action.Push
+                title="Configure URL Set"
+                icon={Icon.Cog}
+                target={
+                  <ConfigureURLSet
+                    urls={selectedURLs}
+                    draftValues={!props.editing ? props.draftValues : undefined}
+                    editing={props.editing}
+                  />
+                }
+              />
               <Action
                 title="Continue..."
                 icon={Icon.ArrowRightCircleFilled}
@@ -273,17 +329,20 @@ const CreateOrEditPreset = (props: {
           }
         />
       </List.Section>
-      <List.Section title="Selected Applications">{selectedApps.map((app) => ListItem(app))}</List.Section>
+      <List.Section title="Selected Applications">{selectedApps.map((app: Application) => ListItem(app))}</List.Section>
       <List.Section title="All Applications">
         {apps
-          .filter((app) => !selectedApps.map((selectedApp) => selectedApp.bundleId).includes(app.bundleId))
-          .map((app) => ListItem(app))}
+          .filter(
+            (app: Application) =>
+              !selectedApps.map((selectedApp: Application) => selectedApp.bundleId).includes(app.bundleId)
+          )
+          .map((app: Application) => ListItem(app))}
       </List.Section>
     </List>
   );
 };
 
-export default function Command() {
+export default function Command(props: LaunchProps<{ draftValues: PresetsDraftValues }>) {
   const [appPresets, setAppPresets] = useState<Preset[]>([]);
   const [hasLoadedPresets, setHasLoadedPresets] = useState(false);
 
@@ -316,14 +375,14 @@ export default function Command() {
 
   const executePreset = async (preset: Preset) => {
     await Promise.all([
-      ...preset.apps.map(async (app) => open(app.path)),
-      ...preset.urls.map(async (url) => open(url)),
+      ...preset.apps.map(async (app: Application) => open(app.path)),
+      ...preset.urls.map(async (url: string) => open(url)),
     ]);
   };
 
   const handleOnCreateOrEditPreset = (preset: Preset) => {
     if (preset.new) {
-      setAppPresets((appPresets) =>
+      setAppPresets((appPresets: Preset[]) =>
         [
           ...appPresets,
           {
@@ -334,12 +393,12 @@ export default function Command() {
             apps: preset.apps,
             urls: preset.urls,
           },
-        ].sort((a, b) => a.name.toLowerCase().localeCompare(b.name.toLocaleLowerCase()))
+        ].sort((a: Preset, b: Preset) => a.name.toLowerCase().localeCompare(b.name.toLocaleLowerCase()))
       );
     } else {
-      setAppPresets((appPresets) =>
+      setAppPresets((appPresets: Preset[]) =>
         appPresets
-          .map((appPreset) => {
+          .map((appPreset: Preset) => {
             return appPreset.id === preset.id
               ? {
                   id: preset.id,
@@ -351,7 +410,7 @@ export default function Command() {
                 }
               : appPreset;
           })
-          .sort((a, b) => a.name.toLowerCase().localeCompare(b.name.toLocaleLowerCase()))
+          .sort((a: Preset, b: Preset) => a.name.toLowerCase().localeCompare(b.name.toLocaleLowerCase()))
       );
     }
 
@@ -366,8 +425,8 @@ export default function Command() {
       primaryAction: {
         title: "Delete",
         onAction: () => {
-          setAppPresets((appPresets) =>
-            appPresets.filter((appPreset) => {
+          setAppPresets((appPresets: Preset[]) =>
+            appPresets.filter((appPreset: Preset) => {
               return appPreset.id !== preset.id;
             })
           );
@@ -392,13 +451,13 @@ export default function Command() {
           <Action.Push
             title="Create Preset"
             icon={Icon.NewDocument}
-            target={<CreateOrEditPreset onCreateOrEditPreset={handleOnCreateOrEditPreset} />}
+            target={<CreateOrEditPreset onCreateOrEditPreset={handleOnCreateOrEditPreset} draftValues={props.draftValues} />}
             onPush={clearSearchBar}
           />
         </ActionPanel>
       }
     >
-      {appPresets.map((preset) => (
+      {appPresets.map((preset: Preset) => (
         <List.Item
           key={preset.id}
           title={preset.name}
@@ -413,7 +472,7 @@ export default function Command() {
                 <List.Item.Detail.Metadata>
                   <List.Item.Detail.Metadata.Label title="URLs" />
                   {preset.urls.length ? (
-                    preset.urls.map((url, urlIndex) => (
+                    preset.urls.map((url: string, urlIndex: number) => (
                       <List.Item.Detail.Metadata.Link key={urlIndex} text={""} target={url} title={url} />
                     ))
                   ) : (
@@ -422,7 +481,7 @@ export default function Command() {
                   <List.Item.Detail.Metadata.Separator />
                   <List.Item.Detail.Metadata.Label title="Applications" />
                   {preset.apps.length ? (
-                    preset.apps.map((app, appIndex) => (
+                    preset.apps.map((app: Application, appIndex: number) => (
                       <List.Item.Detail.Metadata.Label key={appIndex} title={app.name} icon={{ fileIcon: app.path }} />
                     ))
                   ) : (
@@ -467,7 +526,7 @@ export default function Command() {
                 title="Create Preset"
                 icon={Icon.NewDocument}
                 shortcut={{ modifiers: ["cmd"], key: "n" }}
-                target={<CreateOrEditPreset onCreateOrEditPreset={handleOnCreateOrEditPreset} />}
+                target={<CreateOrEditPreset onCreateOrEditPreset={handleOnCreateOrEditPreset} draftValues={props.draftValues} />}
                 onPush={clearSearchBar}
               />
               <Action
